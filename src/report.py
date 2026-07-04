@@ -31,9 +31,42 @@ class DailyReport:
         self.cryptos = [s.strip() for s in crypto_raw.split(",") if s.strip()] if crypto_raw else ["bitcoin", "ethereum"]
 
     def _tg_escape(self, text: str) -> str:
-        """Telegram MarkdownV2 转义"""
+        """Telegram MarkdownV2 转义 - 保留字符前加反斜杠"""
+        # Telegram MarkdownV2 的保留字符
         escape_chars = r'_*[]()~`>#+-=|{}.!'
-        return ''.join(f'\\{c}' if c in escape_chars else c for c in str(text))
+        result = ''
+        for c in str(text):
+            if c in escape_chars:
+                result += '\\' + c
+            else:
+                result += c
+        return result
+
+    def _plain_text(self, text: str) -> str:
+        """生成纯文本版本（去掉所有 markdown 标记）"""
+        # 去掉 markdown 标记，保留可读性
+        text = text.replace('\\*', '*')
+        text = text.replace('\\_', '_')
+        text = text.replace('\\`', '`')
+        text = text.replace('\\.', '.')
+        text = text.replace('\\[', '[')
+        text = text.replace('\\]', ']')
+        text = text.replace('\\(', '(')
+        text = text.replace('\\)', ')')
+        text = text.replace('\\-', '-')
+        text = text.replace('\\+', '+')
+        text = text.replace('\\=', '=')
+        text = text.replace('\\|', '|')
+        text = text.replace('\\{', '{')
+        text = text.replace('\\}', '}')
+        text = text.replace('\\!', '!')
+        text = text.replace('\\~', '~')
+        text = text.replace('\\>', '>')
+        text = text.replace('\\#', '#')
+        text = text.replace('*', '')
+        text = text.replace('_', '')
+        text = text.replace('`', '')
+        return text
 
     def get_a_share_index(self) -> dict:
         """获取A股主要指数"""
@@ -194,7 +227,7 @@ A股指数: {market_data.get('a_index', {})}
             for name, data in a_index.items():
                 price = data["price"]
                 pct = data["change_pct"]
-                lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}: {price} ({pct:+.2f}%)")
+                lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}: {self._tg_escape(price)} ({self._tg_escape(f'{pct:+.2f}%')})")
         else:
             lines.append("⚠️ A股数据获取失败")
         lines.append("")
@@ -208,9 +241,9 @@ A股指数: {market_data.get('a_index', {})}
                     name = info["name"]
                     price = info["price"]
                     pct = info["change_pct"]
-                    lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}({code}): ¥{price} ({pct:+.2f}%)")
+                    lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}({self._tg_escape(code)}): ¥{self._tg_escape(price)} ({self._tg_escape(f'{pct:+.2f}%')})")
                 else:
-                    lines.append(f"⚪ {code}: 暂无数据")
+                    lines.append(f"⚪ {self._tg_escape(code)}: 暂无数据")
             lines.append("")
 
         # 美股市场
@@ -221,7 +254,7 @@ A股指数: {market_data.get('a_index', {})}
             for name, data in us_index.items():
                 price = data["price"]
                 pct = data["change_pct"]
-                lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}: {price:,.2f} ({pct:+.2f}%)")
+                lines.append(f"{self._emoji(pct)} {self._tg_escape(name)}: {self._tg_escape(f'{price:,.2f}')} ({self._tg_escape(f'{pct:+.2f}%')})")
         else:
             lines.append("⚠️ 美股数据获取失败")
         lines.append("")
@@ -234,9 +267,9 @@ A股指数: {market_data.get('a_index', {})}
                 if info:
                     price = info["price"]
                     pct = info["change_pct"]
-                    lines.append(f"{self._emoji(pct)} {symbol}: ${price:,.2f} ({pct:+.2f}%)")
+                    lines.append(f"{self._emoji(pct)} {self._tg_escape(symbol)}: ${self._tg_escape(f'{price:,.2f}')} ({self._tg_escape(f'{pct:+.2f}%')})")
                 else:
-                    lines.append(f"⚪ {symbol}: 暂无数据")
+                    lines.append(f"⚪ {self._tg_escape(symbol)}: 暂无数据")
             lines.append("")
 
         # 加密货币
@@ -248,7 +281,7 @@ A股指数: {market_data.get('a_index', {})}
                 price = data.get("price", 0)
                 change = data.get("change_24h", 0)
                 display_name = coin_id.upper()[:6]
-                lines.append(f"{self._emoji(change)} {display_name}: ${price:,.2f} ({change:+.2f}% /24h)")
+                lines.append(f"{self._emoji(change)} {self._tg_escape(display_name)}: ${self._tg_escape(f'{price:,.2f}')} ({self._tg_escape(f'{change:+.2f}% /24h')})")
         else:
             lines.append("⚠️ 加密货币数据获取失败")
         lines.append("")
@@ -272,7 +305,9 @@ A股指数: {market_data.get('a_index', {})}
 
         msg = self.format_message()
         url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
-        payload = {
+        
+        # 先尝试 MarkdownV2
+        payload_md = {
             "chat_id": self.tg_chat,
             "text": msg,
             "parse_mode": "MarkdownV2",
@@ -280,19 +315,41 @@ A股指数: {market_data.get('a_index', {})}
         }
         
         try:
-            resp = requests.post(url, json=payload, timeout=30)
+            resp = requests.post(url, json=payload_md, timeout=30)
             data = resp.json()
             if data.get("ok"):
-                print("✅ 推送成功！")
+                print("✅ 推送成功（MarkdownV2）！")
                 return True
             else:
-                print(f"❌ Telegram 返回错误: {data}")
-                # 降级到纯文本
-                payload["parse_mode"] = ""
-                payload["text"] = msg.replace("\\", "").replace("*", "").replace("`", "")
-                resp2 = requests.post(url, json=payload, timeout=30)
-                print(f"降级发送结果: {resp2.json()}")
-                return resp2.json().get("ok", False)
+                print(f"⚠️ MarkdownV2 失败: {data}")
+        except Exception as e:
+            print(f"⚠️ MarkdownV2 请求异常: {e}")
+
+        # 降级：发送纯文本版本
+        plain_msg = self._plain_text(msg)
+        payload_plain = {
+            "chat_id": self.tg_chat,
+            "text": plain_msg,
+            "disable_web_page_preview": True
+        }
+        
+        try:
+            resp2 = requests.post(url, json=payload_plain, timeout=30)
+            data2 = resp2.json()
+            if data2.get("ok"):
+                print("✅ 推送成功（纯文本）！")
+                return True
+            else:
+                print(f"❌ 纯文本也失败: {data2}")
+                print(f"\n📋 诊断信息：")
+                print(f"   Token 前10位: {self.tg_token[:10]}...")
+                print(f"   Chat ID: {self.tg_chat}")
+                print(f"\n💡 请检查：")
+                print("   1. TELEGRAM_BOT_TOKEN 是否填对了（不要有多余空格）")
+                print("   2. TELEGRAM_CHAT_ID 是否填对了（纯数字，不要引号）")
+                print("   3. 你是否给机器人发过 Start 消息（在 Telegram 里找机器人点一下 Start）")
+                print("   4. 如果 Chat ID 是群组的，确认机器人已经被加入群组")
+                return False
         except Exception as e:
             print(f"❌ 发送失败: {e}")
             return False
