@@ -46,7 +46,7 @@
 
 ---
 
-## 🚀 5分钟部署教程（只会动鼠标也能搞定）
+## 🚀 部署教程（只会动鼠标也能搞定）
 
 ### 第一步：创建你的 Telegram 机器人（2分钟）
 
@@ -73,15 +73,65 @@
 
 ---
 
-### 第三步：配置 Secrets（2分钟）
+### 第三步：创建 GitHub Actions 工作流（2分钟）
 
-这是你唯一需要"输入"的地方，一共只要填 **2 个必填项 + 3 个可选项**：
+> ⚠️ 因为 GitHub 安全限制，workflow 文件需要你手动创建，只需复制粘贴。
 
-1. 进入你 Fork 后的仓库页面（地址会变成 `https://github.com/你的用户名/daily-finance-telegram`）
-2. 点击顶部菜单 **「Settings」**
-3. 左侧菜单点击 **「Secrets and variables」** → **「Actions」**
-4. 点击绿色按钮 **「New repository secret」**
-5. 依次添加以下 Secrets：
+1. 进入你 Fork 后的仓库页面
+2. 点击 **「Add file」** 按钮 → **「Create new file」**
+3. 在文件名框输入：`.github/workflows/daily-report.yml`
+4. 在下方大文本框中**复制粘贴以下内容**（全部选中然后粘贴）：
+
+```yaml
+name: Daily Finance Report
+
+on:
+  schedule:
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STOCK_LIST_A: ${{ secrets.STOCK_LIST_A }}
+          STOCK_LIST_US: ${{ secrets.STOCK_LIST_US }}
+          CRYPTO_LIST: ${{ secrets.CRYPTO_LIST }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python src/report.py
+```
+
+5. 点击页面最下方的 **「Commit changes...」** → **「Commit directly to the main branch」** → **「Commit new file」**
+
+✅ 搞定！
+
+---
+
+### 第四步：配置 Secrets（2分钟）
+
+这是你唯一需要"填密码"的地方，一共只要填 **2 个必填项 + 3 个可选项**：
+
+1. 在你 Fork 后的仓库页面，点击顶部 **「Settings」**
+2. 左侧菜单点击 **「Secrets and variables」** → **「Actions」**
+3. 点击绿色按钮 **「New repository secret」**
+4. 依次添加以下 Secrets：
 
 **必填项（不填跑不了）：**
 
@@ -102,7 +152,7 @@
 
 ---
 
-### 第四步：启动自动任务（30秒）
+### 第五步：启动自动任务（30秒）
 
 1. 点击仓库顶部的 **「Actions」** 标签
 2. 你会看到一行黄色提示：`Workflows aren't being run on this forked repository`
