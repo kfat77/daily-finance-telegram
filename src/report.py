@@ -1,7 +1,6 @@
 import os
 import requests
 from datetime import datetime
-import xml.etree.ElementTree as ET
 
 try:
     import yfinance as yf
@@ -68,7 +67,6 @@ class DailyReport:
             return None
         try:
             import time
-            # A股代码后缀：6 开头是 .SS，其他是 .SZ
             suffix = ".SS" if code.startswith("6") else ".SZ"
             hist = yf.Ticker(code + suffix).history(period="3d")
             if len(hist) >= 2:
@@ -144,27 +142,25 @@ class DailyReport:
             return {"error": str(e)}
 
     def get_finance_news(self) -> list:
-        """获取新浪财经要闻"""
+        """获取新浪财经要闻（修复编码）"""
         try:
             url = "https://finance.sina.com.cn/news/"
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             resp = requests.get(url, headers=headers, timeout=30)
-            # 简单提取新闻标题
+            # 修复编码：新浪用 GBK
+            resp.encoding = 'gbk'
             content = resp.text
             import re
             titles = re.findall(r'<a[^>]*href="/cn/[^"]*"[^>]*>([^<]{10,60})</a>', content)
             if not titles:
-                # 备选方案：从页面中提取所有文本链接
                 titles = re.findall(r'target="_blank">([^<]{10,60})</a>', content)
-            return list(dict.fromkeys(titles))[:5]  # 去重，取前5条
+            return list(dict.fromkeys(titles))[:5]
         except Exception:
             return []
 
     def get_market_summary(self, a_index: dict, us_index: dict, crypto: dict) -> str:
-        """基于数据规则生成市场速览（不需要 AI API）"""
+        """基于规则生成市场速览（不需要 AI API）"""
         parts = []
-        
-        # A股判断
         a_up = a_up_count = 0
         if a_index and "error" not in a_index:
             for v in a_index.values():
@@ -172,7 +168,6 @@ class DailyReport:
                     a_up_count += 1
             a_up = a_up_count >= 2
             
-        # 美股判断
         us_up = us_up_count = 0
         if us_index and "error" not in us_index:
             for v in us_index.values():
@@ -180,13 +175,11 @@ class DailyReport:
                     us_up_count += 1
             us_up = us_up_count >= 2
             
-        # 加密判断
         crypto_up = False
         if crypto and "error" not in crypto:
             total_change = sum(v.get("change_24h", 0) for v in crypto.values()) / max(len(crypto), 1)
             crypto_up = total_change > 0
         
-        # 生成速览
         if a_up and us_up:
             parts.append("A股与美股同步走强，全球市场风险偏好回升")
         elif a_up and not us_up:
@@ -206,20 +199,24 @@ class DailyReport:
         return "；".join(parts) + "。"
 
     def get_ai_summary(self, market_data: dict) -> str:
-        """可选：使用 Gemini 生成 AI 市场总结"""
+        """使用 Gemini 生成 AI 市场总结"""
         if not self.gemini_key:
             return ""
         try:
-            prompt = f"""你是一个专业的财经分析师。请根据以下市场数据，用中文写一段简短的市场总结（3-4句话，每句不超过30字）：
+            a_str = str(market_data.get('a_index', {}))[:200]
+            us_str = str(market_data.get('us_index', {}))[:200]
+            c_str = str(market_data.get('crypto', {}))[:200]
+            
+            prompt = f"""你是一个资深财经分析师，用中文写一段市场速览（3-4句话，生动、有洞察力，带一点情绪判断但不要给出投资建议）：
 
-A股指数: {market_data.get('a_index', {})}
-美股指数: {market_data.get('us_index', {})}
-加密货币: {market_data.get('crypto', {})}
+A股指数涨跌：{a_str}
+美股指数涨跌：{us_str}
+加密货币涨跌：{c_str}
 
 要求：
-1. 语气客观冷静
-2. 指出主要趋势
-3. 不要给出具体投资建议
+1. 像财经主播一样说话，生动不刻板
+2. 对比中美市场差异
+3. 指出最值得关注的趋势
 """
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={self.gemini_key}"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -228,8 +225,8 @@ A股指数: {market_data.get('a_index', {})}
             if "candidates" in data and len(data["candidates"]) > 0:
                 text = data["candidates"][0]["content"]["parts"][0]["text"]
                 return text.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"AI summary error: {e}")
         return ""
 
     def _emoji(self, val: float) -> str:
@@ -315,17 +312,17 @@ A股指数: {market_data.get('a_index', {})}
             lines.append("⚠️ 加密货币数据获取失败")
         lines.append("")
 
-        # 市场速览（基于规则，不需要 AI API）
-        lines.append("📰 *市场速览*")
-        summary = self.get_market_summary(a_index, us_index, crypto)
-        lines.append(self._tg_escape(summary))
-        lines.append("")
-
-        # AI 总结（如果配置了 Gemini）
+        # AI 市场速览（如果配置了 Gemini）
         ai_text = self.get_ai_summary(market_data)
         if ai_text:
             lines.append("🤖 *AI 市场速览*")
             lines.append(self._tg_escape(ai_text))
+            lines.append("")
+        else:
+            # 没有 AI Key 时，用规则版速览
+            lines.append("📰 *市场速览*")
+            summary = self.get_market_summary(a_index, us_index, crypto)
+            lines.append(self._tg_escape(summary))
             lines.append("")
 
         # 财经要闻
